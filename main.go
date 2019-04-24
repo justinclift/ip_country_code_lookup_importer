@@ -3,14 +3,14 @@ package main
 import (
 	"crypto/tls"
 	"fmt"
-	"github.com/BurntSushi/toml"
-	sqlite "github.com/gwenn/gosqlite"
-	"github.com/jackc/pgx"
 	"log"
 	"os"
 	"path/filepath"
 	"time"
 
+	"github.com/BurntSushi/toml"
+	sqlite "github.com/gwenn/gosqlite"
+	"github.com/jackc/pgx"
 	"github.com/mitchellh/go-homedir"
 )
 
@@ -53,8 +53,7 @@ var (
 	pg *pgx.ConnPool
 
 	// SQLite pieces
-	sdb  *sqlite.Conn
-	stmt *sqlite.Stmt
+	sdb *sqlite.Conn
 )
 
 func main() {
@@ -131,14 +130,16 @@ func main() {
 		}
 	}()
 
-	// TODO: Drop existing PG tables holding the IP country lookup data
+	// Drop existing PG tables holding the IP country lookup data
+	fmt.Print("Dropping existing IPv4 data table from PG")
 	dbQuery := `DROP TABLE IF EXISTS country_code_lookups`
 	_, err = tx.Exec(dbQuery)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	// TODO: Create the PG tables to hold the country lookup data
+	// Create the PG tables to hold the country lookup data
+	fmt.Print("Creating new IPv4 data table in PG")
 	dbQuery = `
 		CREATE TABLE country_code_lookups (
 			ipfrom bigint constraint country_code_lookups_pk primary key,
@@ -154,8 +155,8 @@ func main() {
 		log.Fatal(err)
 	}
 
-
-	// TODO: Import the IP country lookup data from SQLite to PG
+	// Import the IP country lookup data from SQLite to PG
+	fmt.Print("Importing IPv4 data table from SQLite to PG")
 	sQuery := `
 		SELECT IPFROM, IPTO, REGISTRY, ASSIGNED, CTRY, CNTRY, COUNTRY
 		FROM ipv4
@@ -164,22 +165,21 @@ func main() {
 		var row oneRow
 		innerErr = s.Scan(&row.ipFrom, &row.ipTo, &row.registry, &row.assigned, &row.ctry, &row.cntry, &row.country)
 		if innerErr != nil {
-			 return
+			return
 		}
 
-		// TODO: Insert the row into PG
-		innerErr = insertPGData(tx, row)
-		//if innerErr != nil {
-		//	return
-		//}
-
+		// Insert the row into PG
+		innerErr = insertIPv4PGData(tx, row)
 		return
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	// TODO: Create appropriate indexes on the new PG country lookup data
+	// TODO: Import the IPv6 data from SQLite to PG
+
+	// Create appropriate indexes on the new PG country lookup data
+	fmt.Print("Creating indexes in PG")
 	dbQuery = `
 		CREATE INDEX country_code_lookups_ipto_index
 		ON country_code_lookups (ipto)`
@@ -188,17 +188,39 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// TODO: Verify the same number of entries in both the SQLite and PG tables
+	// Verify the same number of entries in both the SQLite and PG tables
+	var pgRowCount, sRowCount int
+	dbQuery = `SELECT count(*) FROM country_code_lookups`
+	err = tx.QueryRow(dbQuery).Scan(&pgRowCount)
+	if err != nil {
+		log.Fatalf("error when counting rows in the pg table: %v\n", err)
+	}
 
-	// Commit PostgreSQL transaction
-	err = tx.Commit()
+	sQuery = `SELECT count(*) FROM ipv4`
+	err = sdb.Select(sQuery, func(s *sqlite.Stmt) (innerErr error) {
+		innerErr = s.Scan(&sRowCount)
+		return
+	})
 	if err != nil {
 		log.Fatal(err)
 	}
+	if pgRowCount != sRowCount {
+		log.Fatalf("Mismatching IPv4 row counts after import.  SQLite: %d, PostgreSQL: %d\n", sRowCount, pgRowCount)
+	}
 
+	// TODO: Figure out why the transaction is already complete here
+	//// Commit PostgreSQL transaction
+	//err = tx.Commit()
+	//if err != nil {
+	//	log.Fatal(err)
+	//}
+
+	// Let the user know the import is complete
+	fmt.Println("Import of SQLite country lookup data is complete")
 }
 
-func insertPGData(tx *pgx.Tx, row oneRow) (err error) {
+// Inserts a single data record into the PostgreSQL database
+func insertIPv4PGData(tx *pgx.Tx, row oneRow) (err error) {
 	var tag pgx.CommandTag
 	dbQuery := `
 		INSERT INTO country_code_lookups (ipfrom, ipto, registry, assigned, ctry, cntry, country)
