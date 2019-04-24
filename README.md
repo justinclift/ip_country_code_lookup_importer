@@ -8,6 +8,6 @@ historical data in a PostgreSQL database.  The code I was initially
 doing it with yesterday uses a mix of SQLite and PG calls, and isn't
 fast enough (~120/second maximum).
 
-With both the historical data in PostgreSQL, and the country code
-lookup data, it should be possible to try some approaches with a much
-faster result.
+With both the historical data and the country code lookup data in
+PostgreSQL, it should be possible to try some approaches with a much
+faster throughput.
